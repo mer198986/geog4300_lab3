@@ -5,12 +5,25 @@ output: github_document
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(echo = TRUE)
 library(tidyverse)
+library(knitr)
+library(ggplot2)
+library(dplyr)
+library(sf)
+library(tmap)
+library(MetBrewer)
+library(paletteer)
+
+scale_colour_paletteer_d("MetBrewer::Monet")
+scale_color_paletteer_d("MetBrewer::Monet")
+scale_fill_paletteer_d("MetBrewer::Monet")
+paletteer_d("MetBrewer::Monet")
 ```
 
 ## Confidence intervals
 
-**Your name: {Name here}**
+**Your name: Mary Elizabeth Rudd**
 
 **Overview:**
 
@@ -19,7 +32,7 @@ In this lab, we will create confidence intervals for January precipitation in Wa
 To load these data, load the csv file, which is included in the data folder:
 
 ```{r message=FALSE}
-era5_data<-read_csv("data/precip_uswest_era5.csv")
+era5_data<-read_csv("~/Downloads/Local GEOG Notes:Projects/geog4300_lab3/data/precip_uswest_era5.csv")
 ```
 
 This is a long format dataset including county identifiers, county population, median household income, and poverty rate. Census figures are based on the 2018-22 ACS. The last two columns (year, prcp_m, time_range) give the year and total precipitation in meters from the ERA5 NetCDF file, and two time ranges (1950-1969 and 2005-2024).
@@ -44,7 +57,19 @@ In the first part of this lab, you'll determine a confidence interval for Washin
 **Task 1** _Load the data and filter it to just include data for the state of Washington. Then create a table showing mean precipitation, standard deviation, number of observations (sample size), and upper/lower confidence interval bounds for each of the two time periods in the `time_range` field. Use `kable` to display the table when you are done._
 
 ```{r Task1}
+era5_WA<-era5_data %>%
+  filter(st_name=="Washington") %>% #Filters for state of WA
+  group_by(time_range) %>%
+  summarise(
+    mean_prcp=mean(prcp_m, na.rm = TRUE),
+    sd_prcp=sd(prcp_m, na.rm = TRUE),
+    observation_count=sum(!is.na(prcp_m)),
+    se=sd_prcp / sqrt(observation_count),
+    lower_ci=mean_prcp - qt(0.975, df = observation_count - 1) * se,
+    upper_ci=mean_prcp + qt(0.975, df = observation_count - 1) * se)
 
+era5_WA%>%
+  kable()
 ```
 
 Using the code provided in class, create a ggplot graphic that visualizes these two confidence intervals. You'll want to use `geom_point` and `geom_linerange` to do so. Use states as the y-axis and mean precipitation as the x axis. Vary the color and position of the dots and lines for the mean/CI by the `time_range` variable. Feel free to also experiment with axis labels/themes to make the graph more appealing and accessible.
@@ -52,12 +77,18 @@ Using the code provided in class, create a ggplot graphic that visualizes these 
 **Task 2** _Create a ggplot graphic as described above to show the confidence intervals for precipitation in Washington for each time range._
 
 ```{r Task3}
-
+ggplot(era5_WA) +
+  geom_linerange(aes(xmin = lower_ci, xmax = upper_ci, y = time_range, color = time_range)) +
+  geom_point(aes(x = mean_prcp, y = time_range, color = time_range)) +
+  scale_color_manual(values = c("#4e6d58", "#836685")) +  
+  labs(x = "Mean January Precipitation (m)", y = "Time period", color = "Time period") +
+  theme_minimal()
 ```
 
 **Task 3** _Interpret your table and graph. What do they tell us about the change in Washington's precipitation during this time?_
 
-{Your response here.}
+In Washington, the mean level of precipitation in 1950-1969 was 0.203 meters, and 0.166 meters in 2005-2024. This shows a change of about 0.037 meters of rainfall. The 95% confidence interval for 1950-1969 runs from 0.1922383	to 0.2142094, and for 2005-2024 the CI ran from 0.1578163 to 0.1751089. The intervals do not overlap, there seems to be some evidence that the statewide mean changed between the time periods of 1950-1969 and 2005-2024.
+
 
 # Part 2: Analyzing county data in Washington.
 In part 1, you ran a state level analysis. What if you wanted to identify where populations might be negatively affected by precipitation changes within a state? In this section, you'll look at the changes in precipitation **at county level** in Washington to 
@@ -67,22 +98,68 @@ To start with, adapt your code from step 1 so that you create confidence interva
 **Task 4** _Create a summary table for January precipitation in Washington counties for both time periods. Use the same approach as in Task 1, but calculate statistics for counties rather than the state as a whole. Call the head of your table with `kable` when you are done._
 
 ```{r Task5}
+era5_WA_CTY<-era5_data %>%
+   filter(st_name =="Washington",month(year) == 1) %>%
+  group_by(cty_name,time_range) %>%
+  summarise(
+    mean_prcp=mean(prcp_m, na.rm = TRUE),
+    sd_prcp=sd(prcp_m, na.rm = TRUE),
+    observation_count=sum(!is.na(prcp_m)),
+    se=sd_prcp / sqrt(observation_count),
+    lower_ci=mean_prcp - qt(0.975, df = observation_count - 1) * se,
+    upper_ci=mean_prcp + qt(0.975, df = observation_count - 1) * se)
 
+era5_WA_CTY %>%
+  kable()
 ```
 
 **Task 5** _Visualize the confidence intervals for the county-level data you generated in task 4, using the same style as you did for Task 2 above. For an optional extra challenge, visually highlight the counties where the confidence intervals between time periods do NOT overlap._
 
 ```{r Task6}
+cty_overlap <- era5_WA_CTY %>%
+  group_by(cty_name) %>%
+  summarise(no_overlap = max(lower_ci) > min(upper_ci))  
 
+era5_WA_CTY_plot <- era5_WA_CTY %>%
+  left_join(cty_overlap, by = "cty_name")
+
+ggplot(era5_WA_CTY_plot,
+       aes(y = reorder(cty_name, mean_prcp), color = time_range)) +
+  geom_linerange(aes(xmin = lower_ci, xmax = upper_ci, linewidth = no_overlap), position = position_dodge(width = 0.6)) +
+  geom_point(aes(x = mean_prcp, size = no_overlap), position = position_dodge(width = 0.6)) +
+  scale_color_manual(values = c("#4e6d58", "#836685")) +        
+  scale_linewidth_manual(values = c(`TRUE` = 2, `FALSE` = 0.5), guide = "none") +
+  scale_size_manual(values = c(`TRUE` = 4, `FALSE` = 1.5), guide = "none") +
+  labs(x = "Mean January Precipitation (m)", y = "County", color = "Time period")+
+  theme_minimal()
 ```
 
 **Task 6**: _Compare the size of the error terms for your county level data to the error terms at state level that you calculated in Task 1. Are they bigger or smaller? Explain why the formula you used for calculating the error terms produced error terms of different sizes. How is this difference visible in your ggplot graphs?_
 
-{Your response here.}
+THe standard error of the data on a state level is around 0.004 - 0.005 meters, while the county data varies much more from county to county. Some of the standard errors at the county level are as large as 0.04m, and as small as 0.003m. When we look at the standard error on the state level vs county level, the n term we use in calculating standard error (SE = s / √n) is very large when we are grouping all the data by just time range. The n is much smaller when we isolate just the january occurrences and further group things by county. BEcause the n is smaller, the standard error for the county level is larger at the county level. This is consistent with our visualization, as we see the county standard errors overlapping more than the state.
 
 **Task 7**: _Transform the county data from task 4 into wide format so that the means for each time period are in the same row for each county. Then calculate the change in precipitation between the time periods. Join this table to the geopackage file that contains county boundaries and census data, making sure that you only have Washington counties included - use the geopackage `data/acsdata_cty_westreg.gpkg`. Then use `tmap` to map out the difference in precipitation means across the two time periods. Make sure the legend of this map is interpretable._
 
 ```{r Task7}
+era5_CTY_Wide <- era5_WA_CTY %>%
+  ungroup() %>%
+  select(cty_name, time_range, mean_prcp) %>%
+  pivot_wider(names_from = time_range, values_from = mean_prcp) %>%
+  rename(`1950-1969` = 2, `2005-2024` = 3) %>%
+  mutate(prcp_change = `2005-2024` - `1950-1969`)
+
+era5_CTY_Wide %>%
+  head() %>%
+  kable(digits = 4)
+
+cty_data <- st_read("data/acsdata_cty_westreg.gpkg")
+
+wa_cty_data <- cty_data %>%
+  filter(st_name == "Washington") %>%
+  left_join(era5_CTY_Wide, by = "cty_name")
+
+tm_shape(wa_cty_data) +
+  tm_polygons(fill = "prcp_change", fill.scale = tm_scale_intervals(values = met.brewer("Monet", n = 7, type = "continuous")),fill.legend = tm_legend(title = "Change in mean January\nprecipitation (m)\n1950-1969 to 2005-2024"))
 
 ```
 
@@ -97,13 +174,23 @@ Now that you've calculated these means and confidence intervals, let's identify 
 **Task 8** _Create a dummy variable for counties with a change of 0.05 meters or more between the time periods. Calculate how many people currently live in these counties along with the mean value of median income (medinc) and poverty rate (pov_pop_pct) for those areas._
 
 ```{r Task 10}
+wa_challenge <- wa_cty_data %>%                                 
+  mutate(decline = if_else(prcp_change <= -0.05, 1, 0))   # 1 = dropped 0.05 m or more
 
+wa_challenge %>%
+  group_by(decline) %>%
+  summarise(
+    n_counties  = n(),
+    total_pop   = sum(totpop_race, na.rm = TRUE),
+    mean_medinc = mean(medinc, na.rm = TRUE),
+    mean_pov    = mean(pov_pop_pct, na.rm = TRUE)
+  ) %>%
+  kable()
 ```
 
 **Task 9** _Create a one paragraph summary of your results from tasks 7 and 8. What do you learn about how precipitation has changed in the last 70 years across the state of Washington? How would you describe the population affected by large drops in precipitation based on your results?_
 
-{Your response here.}
-
+Between 1950-1969 and 2005-2024, mean January precipitation in Washington decreased by about 0.037 m statewide, and the 95% confidence intervals for the two periods did not overlap. At the county level, county confidence intervals overlap more often and varies alot from county to county. 15 of 39 counties in Washington saw precipitation declines by 0.05 meters or more, and about 3.37 million people live in those counties total. Compared with the other counties that did not see those declines, the counties with the 0.05+ declines have a higher mean median household income and a lower mean poverty rate. The population affected by large drops in precipitation seems to be slightly better off economically than the rest of the state.
 
 Small multiples or multi-panel maps are often a helpful way to show change over time. See this page for more information about how these are created in `tmap`:
 
@@ -114,20 +201,31 @@ Using these tools, create a small multiples map of your precipitation data for c
 In addition, describe two interesting trends you see in the figure you created.
 
 ```{r challenge, dpi=300}
+wa_yearly <- wa_cty_data %>%
+  select(cty_name) %>%
+  inner_join(
+    era5_data %>%
+      filter(st_name == "Washington") %>%
+      mutate(yr = factor(year(year))) %>%
+      select(cty_name, yr, prcp_m),
+    by = "cty_name")
 
-
+tm_shape(wa_yearly) +
+  tm_polygons("prcp_m",
+              lwd = 0.2,
+              fill.legend = tm_legend(title = "January\nprecipitation (m)", title.size = 0.7, text.size = 0.6)) +
+  tm_facets_wrap("yr", nrow = 5, ncol = 8) +
+  tm_layout(scale = 0.3, inner.margins = 0, outer.margins = 0, between_margin = 0, panel.label.size = 0.7)
 ```
 
-{Your response here.}
-
-
+Two patterns: First, the level of january precipitation is pretty consistent from west to east, with eastern Washington seeing significantly less precipitation. This is consistent from what I know about how mountains impact rainfall. The part of the state east of the Cascades gets significantly less rainfall, as the air passes over the mountain peaks and warms, causing rain clouds to dissipate. The second thing I noticed is that that there are some years (1953 and 2020) that seem to be pretty extreme with rainfall. There also seems to be more rainfall in the 1950-1969 maps compared to the more recent maps. 
 
 # Final submission stuff
 
 **Disclosure of assistance:** Besides class materials, what other sources of assistance did you use while completing this lab? These can include input from classmates, relevant material identified through web searches (e.g., Stack Overflow), or assistance from ChatGPT or other AI tools. How did these sources support your own learning in completing this lab?
 
-{Response here.}
+I could not figure out how to visually highlight the counties where the confidence intervals between time periods didnt overlap, so I did utilize Claude to teach me how to do that and would lovee to know if the way Claude did it is the way you would have done it. I also used Claude for general debugging. Other than that I used our previous scripts and free online R textbooks. I utilized Google to answer any other questions including ones related to the challenge question. 
 
 **Lab reflection:** How do you feel about the work you did on this lab? Was it easy, moderate, or hard? What are the biggest things you learned by completing it?
 
-{Your response here}
+This lab was moderate, I tried to really stretch myself with the data visualization and make some good looking visuals for my data in this lab, so I felt like I grew in that way! Also brushing up on the joins was good as we haven't focused on those in a second. The data interpretation could likely be better, so I'm excited to get working on that in the latter half of the semester.
